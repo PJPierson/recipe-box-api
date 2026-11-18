@@ -8,6 +8,7 @@ That is the point: you will add both, lesson by lesson, in Units 2 and 3.
 import sqlite3
 
 from flask import Flask, g, jsonify, request
+from werkzeug.security import generate_password_hash, check_password_hash
 
 DATABASE = "recipes.db"
 
@@ -126,6 +127,56 @@ def delete_recipe(recipe_id):
     if cur.rowcount == 0:
         return jsonify({"error": "recipe not found"}), 404
     return "", 204
+
+def user_to_dict(row):
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "email": row["email"],
+    }
+
+
+@app.post("/register")
+@app.post("/users")
+def register_user():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "a JSON body is required"}), 400
+
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
+
+    if (
+        not isinstance(username, str) or not username.strip()
+        or not isinstance(email, str) or not email.strip()
+        or not isinstance(password, str) or not password
+    ):
+        return jsonify({"error": "username, email, and password are required"}), 400
+
+    username = username.strip()
+    email = email.strip()
+    password_hash = generate_password_hash(password)
+
+    db = get_db()
+    try:
+        cur = db.execute(
+            "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+            (username, email, password_hash),
+        )
+        db.commit()
+    except sqlite3.IntegrityError as exc:
+        err_msg = str(exc).lower()
+        if "username" in err_msg:
+            return jsonify({"error": "username already exists"}), 409
+        if "email" in err_msg:
+            return jsonify({"error": "email already exists"}), 409
+        return jsonify({"error": "username or email already exists"}), 409
+
+    row = db.execute(
+        "SELECT id, username, email FROM users WHERE id = ?", (cur.lastrowid,)
+    ).fetchone()
+    return jsonify(user_to_dict(row)), 201
 
 
 if __name__ == "__main__":
